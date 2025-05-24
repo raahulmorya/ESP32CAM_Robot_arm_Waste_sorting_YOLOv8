@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Advanced Robot Arm Control</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial;
+        }
+
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            width: 320px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .slider-container {
+            margin: 10px 0;
+        }
+
+        .slider {
+            width: 100%;
+        }
+
+        .value {
+            display: inline-block;
+            width: 40px;
+            text-align: right;
+        }
+
+        button {
+            padding: 8px 12px;
+            margin: 3px;
+            cursor: pointer;
+            background: #444;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            min-width: 80px;
+        }
+
+        button:hover {
+            background: #555;
+        }
+
+        .status {
+            margin: 10px 0;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 3px;
+        }
+
+        .recording {
+            color: #ff5555;
+        }
+
+        .playing {
+            color: #55ff55;
+        }
+
+        .connected {
+            color: #55ff55;
+        }
+
+        .disconnected {
+            color: #ff5555;
+        }
+
+        .tab {
+            display: none;
+        }
+
+        .tab.active {
+            display: block;
+        }
+
+        .tab-buttons {
+            display: flex;
+            margin-bottom: 10px;
+        }
+
+        .tab-button {
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+        }
+
+        .tab-button.active {
+            background: #555;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <h2>🤖 Robot Arm Control</h2>
+
+        <div class="tab-buttons">
+            <button class="tab-button active" onclick="switchTab('control')">Control</button>
+            <button class="tab-button" onclick="switchTab('programming')">Programming</button>
+            <button class="tab-button" onclick="switchTab('settings')">Settings</button>
+        </div>
+
+        <!-- Control Tab -->
+        <div id="control-tab" class="tab active">
+            <!-- Manual Control Sliders -->
+            <div class="slider-container">
+                <label>Base: <span class="value" id="baseValue">58</span>°</label>
+                <input type="range" min="1" max="115" value="58" class="slider" id="baseSlider">
+            </div>
+
+            <div class="slider-container">
+                <label>Shoulder: <span class="value" id="shoulderValue">42</span>°</label>
+                <input type="range" min="5" max="80" value="42" class="slider" id="shoulderSlider">
+            </div>
+
+            <div class="slider-container">
+                <label>Elbow: <span class="value" id="elbowValue">48</span>°</label>
+                <input type="range" min="11" max="85" value="48" class="slider" id="elbowSlider">
+            </div>
+
+            <div class="slider-container">
+                <label>Gripper: <span class="value" id="gripperValue">64</span>°</label>
+                <input type="range" min="30" max="99" value="64" class="slider" id="gripperSlider">
+            </div>
+
+            <div style="margin: 15px 0;">
+                <button id="voiceBtn">🎤 Voice Control</button>
+                <button id="homeBtn">🏠 Home</button>
+            </div>
+        </div>
+
+        <!-- Programming Tab -->
+        <div id="programming-tab" class="tab">
+            <div style="margin-bottom: 15px;">
+                <button id="recordBtn">⏺️ Record</button>
+                <button id="playBtn">▶️ Play</button>
+                <button id="stopBtn">⏹️ Stop</button>
+            </div>
+
+            <div>
+                <button id="saveBtn">💾 Save</button>
+                <button id="loadBtn">📂 Load</button>
+                <button id="clearBtn">🗑️ Clear</button>
+            </div>
+
+            <div style="margin-top: 15px;">
+                <h4>Saved Programs</h4>
+                <select id="programList" style="width:100%; padding:5px;"></select>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab">
+            <div class="slider-container">
+                <label>Playback Speed:</label>
+                <input type="range" min="1" max="200" value="100" class="slider" id="speedSlider">
+                <span class="value" id="speedValue">100%</span>
+            </div>
+
+            <div style="margin: 15px 0;">
+                <input type="text" id="espIp" placeholder="ESP IP Address" value="192.168.185.83" style="width:180px;">
+                <button id="connectBtn">Connect</button>
+            </div>
+        </div>
+
+        <!-- Status Panel -->
+        <div class="status">
+            <div>Connection: <span id="connectionStatus" class="disconnected">Disconnected</span></div>
+            <div>Voice: <span id="voiceStatus">OFF</span></div>
+            <div>Record: <span id="recStatus">OFF</span></div>
+            <div>Play: <span id="playStatus">OFF</span></div>
+            <div>Frames: <span id="frameCount">0</span></div>
+        </div>
+    </div>
+
+    <!-- Three.js will attach here -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        // ========================
+        // 3D Scene Setup
+        // ========================
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x222222);
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const light1 = new THREE.DirectionalLight(0xffffff, 1);
+        light1.position.set(5, 10, 7);
+        scene.add(light1);
+        scene.add(new THREE.AmbientLight(0x404040));
+        // const axesHelper = new THREE.AxesHelper(6); // length of each axis line
+        // scene.add(axesHelper);
+        // Grid Helper
+        const grid = new THREE.GridHelper(10, 10);
+        scene.add(grid);
+        const rootbase = new THREE.Group();
+        rootbase.position.y = 0.1;
+        scene.add(rootbase);
+
+        // rootBase geometry (Box)
+        const rootbaseGeometry = new THREE.BoxGeometry(7.0, 5, 0.2);
+        const rootbaseMaterial = new THREE.MeshPhongMaterial({ color: 0x000000 });
+        const rootbaseMesh = new THREE.Mesh(rootbaseGeometry, rootbaseMaterial);
+        rootbaseMesh.rotation.x = Math.PI / 2;
+        rootbase.add(rootbaseMesh);
+
+        // ========================
+        // Robot Arm Hierarchy
+        // ========================
+        // Base (root)
+        const base = new THREE.Group();
+        base.position.y = 0;
+        scene.add(base);
+
+        // Base geometry (Box)
+        const baseGeometry = new THREE.BoxGeometry(3.0, 2.8, 0.2);
+        const baseMaterial = new THREE.MeshPhongMaterial({ color: 0x888888 });
+        const baseMesh = new THREE.Mesh(baseGeometry, baseMaterial);
+        baseMesh.position.y = 0.2;
+        baseMesh.rotation.x = Math.PI / 2;
+        base.add(baseMesh);
+
+        // Shoulder (attached to base)
+        const shoulder = new THREE.Group();
+        shoulder.position.y = 0.4;
+        base.add(shoulder);
+
+        // Shoulder geometry
+        const shoulderGeometry = new THREE.CylinderGeometry(0.1, 0.1, 2, 32);
+        const shoulderMaterial = new THREE.MeshPhongMaterial({ color: 0xFFFF00 });
+        const shoulderMesh = new THREE.Mesh(shoulderGeometry, shoulderMaterial);
+        shoulderMesh.position.y = 0.75;
+        shoulderMesh.position.z = 0.2;
+        shoulder.add(shoulderMesh);
+
+        // Elbow (attached to shoulder)
+        const elbow = new THREE.Group();
+        elbow.position.y = 1.7;
+        elbow.position.x = 0.1;
+        elbow.position.z = 0.18;
+        shoulder.add(elbow);
+
+        // const shoulderAxes = new THREE.AxesHelper(0.8); // size 2
+        // shoulder.add(shoulderAxes);
+
+        // Elbow geometry
+        const elbowGeometry = new THREE.CylinderGeometry(0.1, 0.1, 1.3, 32);
+        const elbowMaterial = new THREE.MeshPhongMaterial({ color: 0xe74c3c });
+        const elbowMesh = new THREE.Mesh(elbowGeometry, elbowMaterial);
+
+        elbowMesh.position.y = 0.5;
+        elbow.add(elbowMesh);
+
+        // const elbowAxes = new THREE.AxesHelper(0.8); // size 2
+        // elbow.add(elbowAxes);
+
+
+        // Gripper (attached to elbow)
+        const gripper = new THREE.Group();
+        gripper.position.y = 1.2;
+        gripper.rotation.y = Math.PI / 2;
+
+        elbow.add(gripper);
+
+        // Gripper geometry
+        const gripperBaseGeometry = new THREE.BoxGeometry(0.2, 0.1, 0.4);
+        const gripperBaseMaterial = new THREE.MeshPhongMaterial({ color: 0x2ecc71 });
+        const gripperBase = new THREE.Mesh(gripperBaseGeometry, gripperBaseMaterial);
+        gripper.add(gripperBase);
+        // const gripperAxes = new THREE.AxesHelper(0.8); // size 2
+        // gripper.add(gripperAxes);
+
+
+
+        // Gripper fingers
+        const leftfingerGeometry = new THREE.BoxGeometry(0.1, 0.5, 0.2);
+        const leftfingerMaterial = new THREE.MeshPhongMaterial({ color: 0x1abc9c });
+
+        // const fingerPivot = new THREE.Group();
+
+        const leftFinger = new THREE.Mesh(leftfingerGeometry, leftfingerMaterial);
+        leftfingerGeometry.translate(0, 0.2, 0); // Shift right by 0.5 units
+        gripper.add(leftFinger);
+        // const leftFingerAxes = new THREE.AxesHelper(0.8); // size 2
+        // leftFinger.add(leftFingerAxes);
+
+        // Gripper fingers
+        const rightfingerGeometry = new THREE.BoxGeometry(0.1, 0.5, 0.2);
+        const rightfingerMaterial = new THREE.MeshPhongMaterial({ color: 0x1abc9c });
+
+        const rightFinger = new THREE.Mesh(rightfingerGeometry, rightfingerMaterial);
+        rightfingerGeometry.translate(0, -0.2, 0);
+        gripper.add(rightFinger);
+        // const rightFingerAxes = new THREE.AxesHelper(0.8); // size 2
+        // rightFinger.add(rightFingerAxes);
+
+        // Camera position
+        camera.position.set(4, 6, 0);
+        camera.lookAt(0, 1, 0);
+
+        // Controls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+        // ========================
+        // Core System Variables
+        // ========================
+        const currentAngles = {
+            base: 58,
+            shoulder: 42,
+            elbow: 48,
+            gripper: 64
+        };
+
+        // Motion recording
+        let isPlaying = false;
+        let playbackStartTime = 0;
+        let currentFrameIndex = 0;
+        let playbackSpeed = 1.0; // Normal speed (1.0 = 100%)
+        let playbackTimeout = null;
+
+        const motionFrames = [];
+        let isRecording = false;
+        let lastRecordTime = 0;
+
+        // Voice control
+        let voiceRecognition = null;
+        let lastCommandTime = 0;
+        const COMMAND_COOLDOWN = 2000; // 2 seconds between commands
+        let currentCommand = null;
+        // const voiceCommands = {
+        //     "home": () => goHome(),
+        //     "grab": () => setGripper(90),
+        //     "release": () => setGripper(30),
+        //     "record": () => toggleRecording(),
+        //     "play": () => togglePlayback(),
+        //     "stop": () => stopPlayback(),
+        //     "move to": (x, y, z) => moveToPosition(x, y, z)
+        // };
+
+        const voiceCommands = {
+            "home": {
+                action: () => goHome(),
+                feedback: "Returning to home position"
+            },
+            "grab": {
+                action: () => setGripper(90),
+                feedback: "Closing gripper"
+            },
+            "release": {
+                action: () => setGripper(30),
+                feedback: "Opening gripper"
+            },
+            "record": {
+                action: () => toggleRecording(),
+                feedback: "Toggling recording"
+            },
+            "play": {
+                action: () => togglePlayback(),
+                feedback: "Toggling playback"
+            },
+            "stop": {
+                action: () => stopPlayback(),
+                feedback: "Stopping playback"
+            },
+            "set angles": {
+                action: (base, shoulder, elbow) => {
+                    currentAngles.base = base;
+                    currentAngles.shoulder = shoulder;
+                    currentAngles.elbow = elbow;
+                    updateArm();
+                },
+                feedback: (base, shoulder, elbow) => `Setting angles: base ${base}, shoulder ${shoulder}, elbow ${elbow}`
+            }
+        };
+
+        // Connection status
+        let espIp = "192.168.137.253";
+        let isConnected = false;
+        let connectionCheckInterval;
+
+        // ========================
+        // Arm Movement Functions
+        // ========================
+        function updateArm() {
+            // Base rotates around Y axis
+            base.rotation.y = THREE.MathUtils.degToRad(currentAngles.base - 58);
+
+            // Shoulder rotates around Z axis (forward/back)
+            shoulder.rotation.z = THREE.MathUtils.degToRad(380 - currentAngles.shoulder);
+
+            // Elbow rotates around Z axis
+            elbow.rotation.z = THREE.MathUtils.degToRad(250 + currentAngles.elbow);
+
+            // Gripper fingers (open/close)
+            leftFinger.rotation.z = THREE.MathUtils.degToRad(100 - currentAngles.gripper);
+            rightFinger.rotation.z = THREE.MathUtils.degToRad(80 + currentAngles.gripper);
+            // rightFinger.position.x = 0.2 + gripAmount;
+
+            // Update slider displays
+            document.getElementById('baseValue').textContent = currentAngles.base;
+            document.getElementById('shoulderValue').textContent = currentAngles.shoulder;
+            document.getElementById('elbowValue').textContent = currentAngles.elbow;
+            document.getElementById('gripperValue').textContent = currentAngles.gripper;
+
+            // Update sliders without triggering events
+            document.getElementById('baseSlider').value = currentAngles.base;
+            document.getElementById('shoulderSlider').value = currentAngles.shoulder;
+            document.getElementById('elbowSlider').value = currentAngles.elbow;
+            document.getElementById('gripperSlider').value = currentAngles.gripper;
+
+            // If recording, add frame
+            if (isRecording) {
+                const now = Date.now();
+                const timeDiff = lastRecordTime ? now - lastRecordTime : 0;
+
+                motionFrames.push({
+                    timeSinceLast: timeDiff,
+                    angles: { ...currentAngles }
+                });
+
+                lastRecordTime = now;
+                updateFrameCount();
+            }
+
+            // Send to ESP8266 if connected
+            sendAnglesToESP();
+        }
+
+        function goHome() {
+            currentAngles.base = 58;
+            currentAngles.shoulder = 23;
+            currentAngles.elbow = 54;
+            currentAngles.gripper = 64;
+            updateArm();
+        }
+
+        function setGripper(angle) {
+            currentAngles.gripper = angle;
+            updateArm();
+        }
+
+        // ========================
+        // Motion Recording/Playback
+        // ========================
+        function toggleRecording() {
+            isRecording = !isRecording;
+
+            if (isRecording) {
+                motionFrames.length = 0; // Clear previous recording
+                lastRecordTime = 0;
+                document.getElementById('recStatus').textContent = "ON";
+                document.getElementById('recStatus').className = "recording";
+            } else {
+                document.getElementById('recStatus').textContent = "OFF";
+                document.getElementById('recStatus').className = "";
+            }
+        }
+
+        function togglePlayback() {
+            if (motionFrames.length === 0) {
+                alert("No motion recorded!");
+                return;
+            }
+
+            if (isPlaying) {
+                stopPlayback();
+            } else {
+                startPlayback();
+            }
+        }
+
+        function startPlayback() {
+            if (motionFrames.length === 0) {
+                alert("No motion recorded!");
+                return;
+            }
+
+            if (isPlaying) {
+                stopPlayback();
+                return;
+            }
+
+            isPlaying = true;
+            currentFrameIndex = 0;
+            playbackStartTime = performance.now();
+
+            document.getElementById('playStatus').textContent = "PLAYING";
+            document.getElementById('playStatus').className = "playing";
+
+            playNextFrame();
+        }
+
+        function playNextFrame() {
+            if (!isPlaying || currentFrameIndex >= motionFrames.length) {
+                stopPlayback();
+                return;
+            }
+
+            const frame = motionFrames[currentFrameIndex];
+
+            // Apply frame angles
+            currentAngles.base = frame.angles.base;
+            currentAngles.shoulder = frame.angles.shoulder;
+            currentAngles.elbow = frame.angles.elbow;
+            currentAngles.gripper = frame.angles.gripper;
+            updateArm();
+
+            // Calculate delay (adjusted for playback speed)
+            const delay = frame.timeSinceLast / playbackSpeed;
+
+            // Schedule next frame with precise timing
+            playbackTimeout = setTimeout(() => {
+                currentFrameIndex++;
+                playNextFrame();
+            }, delay);
+        }
+
+        function stopPlayback() {
+            isPlaying = false;
+            if (playbackTimeout) {
+                clearTimeout(playbackTimeout);
+                playbackTimeout = null;
+            }
+            document.getElementById('playStatus').textContent = "STOPPED";
+            document.getElementById('playStatus').className = "";
+        }
+
+        // Playback speed
+        document.getElementById('speedSlider').addEventListener('input', (e) => {
+            playbackSpeed = parseInt(e.target.value) / 100;
+            document.getElementById('speedValue').textContent = `${e.target.value}%`;
+
+            // Restart playback if currently playing to apply new speed
+            if (isPlaying) {
+                const wasPlaying = isPlaying;
+                stopPlayback();
+                if (wasPlaying) startPlayback();
+            }
+        });
+
+        function clearRecording() {
+            if (confirm("Clear all recorded motion?")) {
+                motionFrames.length = 0;
+                updateFrameCount();
+            }
+        }
+
+        function updateFrameCount() {
+            document.getElementById('frameCount').textContent = motionFrames.length;
+        }
+
+        // ========================
+        // Save/Load System
+        // ========================
+        function saveMotion() {
+            const name = prompt("Name this motion:");
+            if (name) {
+                const motions = JSON.parse(localStorage.getItem('robotArmMotions') || '{}');
+                motions[name] = motionFrames;
+                localStorage.setItem('robotArmMotions', JSON.stringify(motions));
+                updateProgramList();
+            }
+        }
+
+        function loadMotion() {
+            const name = document.getElementById('programList').value;
+            if (name) {
+                const motions = JSON.parse(localStorage.getItem('robotArmMotions') || '{}');
+                motionFrames.length = 0;
+                motionFrames.push(...motions[name]);
+                updateFrameCount();
+                alert(`Loaded "${name}" with ${motionFrames.length} frames`);
+            }
+        }
+
+        function updateProgramList() {
+            const select = document.getElementById('programList');
+            select.innerHTML = '';
+
+            const motions = JSON.parse(localStorage.getItem('robotArmMotions') || '{}');
+            for (const name in motions) {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            }
+        }
+
+        // ========================
+        // Voice Control
+        // ========================
+        function toggleVoiceControl() {
+            if (voiceRecognition) {
+                voiceRecognition.stop();
+                voiceRecognition = null;
+                currentCommand = null;
+                document.getElementById('voiceStatus').textContent = "OFF";
+            } else {
+                currentCommand = null;
+                lastCommandTime = 0;
+                startVoiceControl();
+            }
+        }
+
+        function startVoiceControl() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert("Voice control not supported in your browser");
+                return;
+            }
+
+            voiceRecognition = new webkitSpeechRecognition();
+            voiceRecognition.continuous = true;
+            voiceRecognition.interimResults = true;
+
+            voiceRecognition.onstart = () => {
+                document.getElementById('voiceStatus').textContent = "LISTENING";
+            };
+
+            // Voice recognition handler
+            voiceRecognition.onresult = (event) => {
+                const now = Date.now();
+                if (now - lastCommandTime < COMMAND_COOLDOWN) return;
+
+                const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+                console.log("Voice command:", transcript);
+
+                // Ignore if same command is repeated
+                if (transcript === currentCommand) return;
+
+                // Improved pattern for capturing angles
+                const angleCommand = transcript.match(/(?:move|set|position)\s+(\d{1,3})\s*(?:and|&|to)?\s*(\d{1,3})\s*(?:and|&)?\s*(\d{1,3})(?:\s*(?:and|&)?\s*(\d{1,3}))?(?:\s+position)?/i);
+
+                if (angleCommand) {
+                    // Extract and validate numbers
+                    const baseAngle = parseInt(angleCommand[1]);
+                    const shoulderAngle = parseInt(angleCommand[2]);
+                    const elbowAngle = parseInt(angleCommand[3]);
+                    const gripperAngle = angleCommand[4] ? parseInt(angleCommand[4]) : currentAngles.gripper;
+
+                    // Validate we got proper numbers
+                    if (!isNaN(baseAngle) && !isNaN(shoulderAngle) && !isNaN(elbowAngle)) {
+                        currentCommand = transcript;
+                        lastCommandTime = now;
+
+                        // Apply the angles with validation
+                        currentAngles.base = Math.min(115, Math.max(1, baseAngle));
+                        currentAngles.shoulder = Math.min(80, Math.max(5, shoulderAngle));
+                        currentAngles.elbow = Math.min(85, Math.max(11, elbowAngle));
+                        if (angleCommand[4]) {
+                            currentAngles.gripper = Math.min(99, Math.max(30, gripperAngle));
+                        }
+                        updateArm();
+
+                        // Give feedback
+                        let feedback = `Setting angles: base ${currentAngles.base}°, shoulder ${currentAngles.shoulder}°`;
+                        feedback += `, elbow ${currentAngles.elbow}°`;
+                        if (angleCommand[4]) {
+                            feedback += `, gripper ${currentAngles.gripper}°`;
+                        }
+                        speak(feedback);
+                        return;
+                    }
+                }
+
+                // Check other commands
+                for (const [command, config] of Object.entries(voiceCommands)) {
+                    if (command !== "set angles" && transcript.includes(command)) {
+                        currentCommand = transcript;
+                        lastCommandTime = now;
+                        config.action();
+                        speak(config.feedback);
+                        return;
+                    }
+                }
+
+                // If we got here, command wasn't understood
+                // if (transcript.includes("move") || transcript.includes("set") || transcript.includes("position")) {
+                //     speak("Please say the command clearly like: move 30 and 40 and 50 position");
+                // }
+                currentCommand = null;
+            };
+
+            voiceRecognition.start();
+        }
+
+
+        // Add text-to-speech feedback
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1.0;
+                speechSynthesis.speak(utterance);
+            } else {
+                console.log("Speech synthesis not supported");
+            }
+        }
+
+        // ========================
+        // ESP8266 Communication
+        // ========================
+        function connectToESP() {
+            espIp = document.getElementById('espIp').value;
+
+            // Simple connection check
+            fetch(`http://${espIp}/api/status`, { timeout: 2000 })
+                .then(() => {
+                    isConnected = true;
+                    document.getElementById('connectionStatus').textContent = "CONNECTED";
+                    document.getElementById('connectionStatus').className = "connected";
+                })
+                .catch(() => {
+                    isConnected = false;
+                    document.getElementById('connectionStatus').textContent = "DISCONNECTED";
+                    document.getElementById('connectionStatus').className = "disconnected";
+                });
+        }
+
+        function sendAnglesToESP() {
+            if (!isConnected) return;
+
+            const servoMap = { base: 0, shoulder: 1, elbow: 2, gripper: 3 };
+            for (const [joint, angle] of Object.entries(currentAngles)) {
+                fetch(`http://${espIp}/api/setpos?servo=${servoMap[joint]}&angle=${angle}`)
+                    .catch(err => {
+                        console.error("Error sending to ESP:", err);
+                        isConnected = false;
+                        document.getElementById('connectionStatus').textContent = "DISCONNECTED";
+                        document.getElementById('connectionStatus').className = "disconnected";
+                    });
+            }
+        }
+
+        // ========================
+        // UI Event Listeners
+        // ========================
+        // Sliders
+        document.getElementById('baseSlider').addEventListener('input', (e) => {
+            currentAngles.base = parseInt(e.target.value);
+            updateArm();
+        });
+
+        document.getElementById('shoulderSlider').addEventListener('input', (e) => {
+            currentAngles.shoulder = parseInt(e.target.value);
+            updateArm();
+        });
+
+        document.getElementById('elbowSlider').addEventListener('input', (e) => {
+            currentAngles.elbow = parseInt(e.target.value);
+            updateArm();
+        });
+
+        document.getElementById('gripperSlider').addEventListener('input', (e) => {
+            currentAngles.gripper = parseInt(e.target.value);
+            updateArm();
+        });
+
+
+
+        // Buttons
+        document.getElementById('voiceBtn').addEventListener('click', toggleVoiceControl);
+        document.getElementById('homeBtn').addEventListener('click', goHome);
+        document.getElementById('recordBtn').addEventListener('click', toggleRecording);
+        document.getElementById('playBtn').addEventListener('click', togglePlayback);
+        document.getElementById('stopBtn').addEventListener('click', stopPlayback);
+        document.getElementById('saveBtn').addEventListener('click', saveMotion);
+        document.getElementById('loadBtn').addEventListener('click', loadMotion);
+        document.getElementById('clearBtn').addEventListener('click', clearRecording);
+        document.getElementById('connectBtn').addEventListener('click', connectToESP);
+
+        // Tab switching
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+            document.querySelector(`.tab-button[onclick="switchTab('${tabName}')"]`).classList.add('active');
+        }
+
+        // ========================
+        // Initialization
+        // ========================
+        function init() {
+            updateArm();
+            updateProgramList();
+
+            // Check connection every 5 seconds
+            connectionCheckInterval = setInterval(() => {
+                if (espIp && isConnected) {
+                    fetch(`http://${espIp}/api/status`, { timeout: 1000 })
+                        .catch(() => {
+                            isConnected = false;
+                            document.getElementById('connectionStatus').textContent = "DISCONNECTED";
+                            document.getElementById('connectionStatus').className = "disconnected";
+                        });
+                }
+            }, 5000);
+        }
+
+        // Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+            controls.update();
+        }
+
+        animate();
+        init();
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+
+</html>
