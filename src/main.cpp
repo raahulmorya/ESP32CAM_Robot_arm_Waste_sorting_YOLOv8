@@ -33,7 +33,7 @@ const int homePosition[4] = {58, 23, 54, gripperClosed};
 const int hazardousPickPosition[4] = {58, 60, 54, gripperOpen};
 const int hazardousPlacePosition[4] = {6, 70, 29, gripperClosed};
 const int nonRecyclablePickPosition[4] = {58, 60, 54, gripperOpen};
-const int nonRecyclablePlacePosition[4] = {6, 70, 29, gripperClosed};
+const int nonRecyclablePlacePosition[4] = {110, 70, 29, gripperClosed};
 int servoAngles[4] = {58, 23, 54, 64}; // Midpoints
 
 // Motion recording
@@ -406,11 +406,12 @@ void handleSort()
 
 void smoothMove(int targetAngles[4])
 {
+    
     int steps = 0;
     int startAngles[4];
 
     // Calculate maximum steps needed
-    for (int i = 0; i < 4; i++)
+    for (int i = 1; i < 4; i++)
     {
         int diff = abs(targetAngles[i] - servoAngles[i]);
         if (diff > steps)
@@ -423,7 +424,7 @@ void smoothMove(int targetAngles[4])
     // Execute movement
     for (int step = 0; step <= steps; step++)
     {
-        for (int i = 0; i < 4; i++)
+        for (int i = 1; i < 4; i++)
         {
             if (step <= abs(targetAngles[i] - startAngles[i]))
             {
@@ -442,31 +443,35 @@ void sortHazardous()
     int pickPos[4];
     memcpy(pickPos, hazardousPickPosition, sizeof(pickPos));
     smoothMove(pickPos);
-
+    
     // Open gripper
     setServoAngle(3, gripperOpen);
     delay(1000);
-
+    
     // Close gripper (grab)
     setServoAngle(3, gripperClosed);
     delay(1000);
-
+    
+    setServoAngle(0,hazardousPlacePosition[0]);
+    delay(1000);
     // Move to place position
     int placePos[4];
     memcpy(placePos, hazardousPlacePosition, sizeof(placePos));
     smoothMove(placePos);
 
-    delay(800);
+    delay(1000);
     // Open gripper (release)
     setServoAngle(3, gripperOpen);
     delay(500);
     setServoAngle(3, gripperClosed);
-    delay(500);
+    delay(1000);
 
     // Return home
     int home[4];
     memcpy(home, homePosition, sizeof(home));
     smoothMove(home);
+    setServoAngle(0, homePosition[0]);
+    delay(1000);
 
     // Close gripper
     setServoAngle(3, gripperClosed);
@@ -482,31 +487,38 @@ void sortNonRecyclable()
     int pickPos[4];
     memcpy(pickPos, nonRecyclablePickPosition, sizeof(pickPos));
     smoothMove(pickPos);
-
+    
     // Open gripper
     setServoAngle(3, gripperOpen);
     delay(1000);
-
+    
     // Close gripper (grab)
     setServoAngle(3, gripperClosed);
     delay(1000);
+    
+    setServoAngle(0, nonRecyclablePlacePosition[0]);
+    delay(1000);
+
 
     // Move to place position
     int placePos[4];
     memcpy(placePos, nonRecyclablePlacePosition, sizeof(placePos));
     smoothMove(placePos);
 
-    delay(800);
+    delay(1000);
     // Open gripper (release)
     setServoAngle(3, gripperOpen);
     delay(500);
     setServoAngle(3, gripperClosed);
-    delay(500);
+    delay(1000);
 
     // Return home
     int home[4];
     memcpy(home, homePosition, sizeof(home));
     smoothMove(home);
+
+    setServoAngle(0, homePosition[0]);
+    delay(1000);
 
     // Close gripper
     setServoAngle(3, gripperClosed);

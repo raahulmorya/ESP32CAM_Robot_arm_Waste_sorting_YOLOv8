@@ -120,7 +120,7 @@ def main():
                             elif class_name in NON_RECYCLABLE:
                                 category = "NON_RECYCLABLE"
                                 color = (0, 165, 255)  # Orange
-                                if confidence > 0.7:
+                                if confidence > 0.3:
                                     print(f"Detected {class_name}, sending non-recyclable sort request")
                                     send_sort_request("nonrecyclable")
                                     last_detection_time = time.time()
