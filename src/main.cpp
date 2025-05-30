@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include <Adafruit_PWMServoDriver.h>
 #include <esp32cam.h>
+#include <Update.h>
 
 // Servo Configuration
 #define I2C_SDA 14 // GPIO14 (free pin on ESP32-CAM)
@@ -55,6 +56,53 @@ unsigned long playStartTime = 0;
 bool isBusy = false;
 String currentAction = "ready";
 
+const char *updateHTML = R"rawliteral(
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>ESP32-CAM Firmware Update</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            form { margin-top: 20px; }
+            .progress { margin-top: 20px; width: 100%; background-color: #f3f3f3; }
+            .progress-bar { width: 0%; height: 30px; background-color: #4CAF50; text-align: center; line-height: 30px; color: white; }
+        </style>
+    </head>
+    <body>
+        <h1>Firmware Update</h1>
+        <form method='POST' action='/update' enctype='multipart/form-data'>
+            <input type='file' name='update'>
+            <input type='submit' value='Update'>
+        </form>
+        <div class="progress">
+            <div class="progress-bar" id="progress">0%</div>
+        </div>
+        <script>
+            document.querySelector('form').addEventListener('submit', function(e) {
+                var form = this;
+                var fileInput = form.querySelector('input[type="file"]');
+                if (fileInput.files.length > 0) {
+                    var xhr = new XMLHttpRequest();
+                    var formData = new FormData(form);
+                    
+                    xhr.upload.addEventListener('progress', function(evt) {
+                        if (evt.lengthComputable) {
+                            var percentComplete = (evt.loaded / evt.total) * 100;
+                            document.getElementById('progress').style.width = percentComplete + '%';
+                            document.getElementById('progress').innerHTML = Math.round(percentComplete) + '%';
+                        }
+                    }, false);
+                    
+                    xhr.open('POST', '/update', true);
+                    xhr.send(formData);
+                }
+                e.preventDefault();
+            });
+        </script>
+    </body>
+    </html>
+    )rawliteral";
+
 WebServer server(80);
 
 //////////////////////////// Function Prototypes
@@ -74,6 +122,8 @@ void handleSort();
 void smoothMove(int targetAngles[4]);
 void sortHazardous();
 void sortNonRecyclable();
+void handleUpload();
+void handleUpdate();
 
 //////////////////////////// Camera Functions
 void serveJpg()
@@ -184,6 +234,12 @@ void setup()
     server.on("/api/status", HTTP_GET, handleGetStatus);
     server.on("/api/sort", HTTP_GET, handleSort);
 
+    server.on("/update", HTTP_GET, []()
+              {
+        server.sendHeader("Connection", "close");
+        server.send(200, "text/html", updateHTML); });
+
+    server.on("/update", HTTP_POST, handleUpdate, handleUpload);
     // Camera endpoints
     server.on("/cam-lo.jpg", handleJpgLo);
     server.on("/cam-hi.jpg", handleJpgHi);
@@ -525,4 +581,43 @@ void sortNonRecyclable()
 
     isBusy = false;
     currentAction = "ready";
+}
+
+void handleUpdate()
+{
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart();
+}
+
+void handleUpload()
+{
+    HTTPUpload &upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START)
+    {
+        Serial.printf("Update: %s\n", upload.filename.c_str());
+        if (!Update.begin(UPDATE_SIZE_UNKNOWN))
+        { // Start with max available size
+            Update.printError(Serial);
+        }
+    }
+    else if (upload.status == UPLOAD_FILE_WRITE)
+    {
+        // Flashing firmware to ESP
+        if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+        {
+            Update.printError(Serial);
+        }
+    }
+    else if (upload.status == UPLOAD_FILE_END)
+    {
+        if (Update.end(true))
+        { // true to set the size to the current progress
+            Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+        }
+        else
+        {
+            Update.printError(Serial);
+        }
+    }
 }
