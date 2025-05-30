@@ -15,15 +15,8 @@
 #define LED_GPIO_NUM 4 // LED Configuration (4 for flash LED or 33 for normal LED)
 
 // WiFi Configuration
-const char *ssid = "OPTIMUS";
-const char *password = "qqwweeaaaa";
-
-// Camera Configuration
-static auto loRes = esp32cam::Resolution::find(320, 240);
-static auto midRes = esp32cam::Resolution::find(350, 530);
-static auto hiRes = esp32cam::Resolution::find(800, 600);
-
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+const char *ssid = "OnePlus Nord CE4";
+const char *password = "ciaaaa0902";
 
 // Servo ranges (min, max)
 const int gripperOpen = 30;
@@ -37,22 +30,13 @@ const int nonRecyclablePickPosition[4] = {58, 60, 54, gripperOpen};
 const int nonRecyclablePlacePosition[4] = {110, 70, 29, gripperClosed};
 int servoAngles[4] = {58, 23, 54, 64}; // Midpoints
 
-// Motion recording
-struct MotionFrame
-{
-    int angles[4];
-    unsigned long timeSinceLast;
-};
+// Camera Configuration
+static auto loRes = esp32cam::Resolution::find(320, 240);
+static auto midRes = esp32cam::Resolution::find(350, 530);
+static auto hiRes = esp32cam::Resolution::find(800, 600);
 
-const int maxFrames = 100;
-MotionFrame motionSequence[maxFrames];
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
-int recordedFrames = 0;
-bool isRecording = false;
-bool isPlaying = false;
-unsigned long lastRecordTime = 0;
-int currentPlayFrame = 0;
-unsigned long playStartTime = 0;
 bool isBusy = false;
 String currentAction = "ready";
 
@@ -108,11 +92,7 @@ WebServer server(80);
 //////////////////////////// Function Prototypes
 void handleControl();
 void handleSetPosition();
-void handleRecord();
-void handlePlay();
-void handleClear();
 void handleGetStatus();
-void playMotion();
 void setServoAngle(uint8_t servoNum, uint8_t angle);
 void serveJpg();
 void handleJpgLo();
@@ -228,9 +208,6 @@ void setup()
     // API endpoints
     server.on("/api/control", HTTP_GET, handleControl);
     server.on("/api/setpos", HTTP_GET, handleSetPosition);
-    server.on("/api/record", HTTP_GET, handleRecord);
-    server.on("/api/play", HTTP_GET, handlePlay);
-    server.on("/api/clear", HTTP_GET, handleClear);
     server.on("/api/status", HTTP_GET, handleGetStatus);
     server.on("/api/sort", HTTP_GET, handleSort);
 
@@ -267,15 +244,13 @@ void setup()
     server.begin();
 }
 
-//////////////////////////// Main Loop
+// Main Loop
 void loop()
 {
     server.handleClient();
-    if (isPlaying)
-        playMotion();
 }
 
-//////////////////////////// API Handlers
+// API Handlers
 void handleControl()
 {
     server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -313,56 +288,8 @@ void handleSetPosition()
         {
             angle = constrain(angle, servoRanges[servoNum][0], servoRanges[servoNum][1]);
             setServoAngle(servoNum, angle);
-
-            if (isRecording && recordedFrames < maxFrames)
-            {
-                unsigned long currentTime = millis();
-                if (recordedFrames > 0)
-                {
-                    motionSequence[recordedFrames - 1].timeSinceLast = currentTime - lastRecordTime;
-                }
-                for (int i = 0; i < 4; i++)
-                {
-                    motionSequence[recordedFrames].angles[i] = servoAngles[i];
-                }
-                recordedFrames++;
-                lastRecordTime = currentTime;
-            }
         }
     }
-    server.send(200, "application/json", "{\"status\":\"OK\"}");
-}
-
-void handleRecord()
-{
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    isRecording = !isRecording;
-    if (isRecording)
-    {
-        recordedFrames = 0;
-        lastRecordTime = millis();
-    }
-    server.send(200, "application/json", "{\"status\":\"OK\",\"recording\":" + String(isRecording) + "}");
-}
-
-void handlePlay()
-{
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    isPlaying = !isPlaying;
-    if (isPlaying)
-    {
-        currentPlayFrame = 0;
-        playStartTime = millis();
-    }
-    server.send(200, "application/json", "{\"status\":\"OK\",\"playing\":" + String(isPlaying) + "}");
-}
-
-void handleClear()
-{
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    recordedFrames = 0;
-    isRecording = false;
-    isPlaying = false;
     server.send(200, "application/json", "{\"status\":\"OK\"}");
 }
 
@@ -370,41 +297,12 @@ void handleGetStatus()
 {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     JsonDocument doc;
-    doc["recording"] = isRecording;
-    doc["playing"] = isPlaying;
-    doc["frameCount"] = recordedFrames;
-    doc["currentFrame"] = currentPlayFrame;
     doc["busy"] = isBusy;
     doc["action"] = currentAction;
 
     String json;
     serializeJson(doc, json);
     server.send(200, "application/json", json);
-}
-void playMotion()
-{
-    if (!isPlaying || currentPlayFrame >= recordedFrames)
-    {
-        isPlaying = false;
-        return;
-    }
-
-    unsigned long currentTime = millis() - playStartTime;
-    unsigned long frameTime = 0;
-
-    for (int i = 0; i <= currentPlayFrame; i++)
-    {
-        frameTime += motionSequence[i].timeSinceLast;
-    }
-
-    if (currentTime >= frameTime)
-    {
-        for (int i = 0; i < 4; i++)
-        {
-            setServoAngle(i, motionSequence[currentPlayFrame].angles[i]);
-        }
-        currentPlayFrame++;
-    }
 }
 
 void setServoAngle(uint8_t servoNum, uint8_t angle)
@@ -462,7 +360,7 @@ void handleSort()
 
 void smoothMove(int targetAngles[4])
 {
-    
+
     int steps = 0;
     int startAngles[4];
 
@@ -499,16 +397,16 @@ void sortHazardous()
     int pickPos[4];
     memcpy(pickPos, hazardousPickPosition, sizeof(pickPos));
     smoothMove(pickPos);
-    
+
     // Open gripper
     setServoAngle(3, gripperOpen);
     delay(1000);
-    
+
     // Close gripper (grab)
     setServoAngle(3, gripperClosed);
     delay(1000);
-    
-    setServoAngle(0,hazardousPlacePosition[0]);
+
+    setServoAngle(0, hazardousPlacePosition[0]);
     delay(1000);
     // Move to place position
     int placePos[4];
@@ -543,18 +441,17 @@ void sortNonRecyclable()
     int pickPos[4];
     memcpy(pickPos, nonRecyclablePickPosition, sizeof(pickPos));
     smoothMove(pickPos);
-    
+
     // Open gripper
     setServoAngle(3, gripperOpen);
     delay(1000);
-    
+
     // Close gripper (grab)
     setServoAngle(3, gripperClosed);
     delay(1000);
-    
+
     setServoAngle(0, nonRecyclablePlacePosition[0]);
     delay(1000);
-
 
     // Move to place position
     int placePos[4];
